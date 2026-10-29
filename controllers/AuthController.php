@@ -7,6 +7,9 @@ require_once __DIR__ . '/../models/User.php';
  * Clase AuthController
  * Controlador que maneja la lógica de negocio para
  * el registro e inicio de sesión de usuarios.
+ *
+ * Revisado 2026-10-29: usuario duplicado devuelve 409 en vez de romper con un
+ * error fatal, y la validación ya no trata el string "0" como vacío.
  */
 class AuthController {
     private $conn;
@@ -27,11 +30,15 @@ class AuthController {
         // Obtener datos enviados en formato JSON
         $data = json_decode(file_get_contents("php://input"));
 
-        // Validar que los datos no estén vacíos
-        if(!empty($data->usuario) && !empty($data->password)) {
-            
-            $this->user->usuario = $data->usuario;
-            $this->user->password = $data->password;
+        // Validar que los datos no estén vacíos.
+        // Se usa ?? '' porque empty('0') devuelve true y un usuario "0" es válido.
+        $usuario  = $data->usuario  ?? '';
+        $password = $data->password ?? '';
+
+        if (is_string($usuario) && is_string($password) && $usuario !== '' && $password !== '') {
+
+            $this->user->usuario = $usuario;
+            $this->user->password = $password;
 
             // Intentar registrar el usuario
             if($this->user->registrar()) {
@@ -39,6 +46,12 @@ class AuthController {
                 echo json_encode([
                     "estado" => "exitoso",
                     "mensaje" => "Usuario registrado correctamente"
+                ]);
+            } elseif($this->user->ultimoError === 'duplicado') {
+                http_response_code(409); // 409 Conflict
+                echo json_encode([
+                    "estado" => "error",
+                    "mensaje" => "El usuario ya existe"
                 ]);
             } else {
                 http_response_code(500); // Error del servidor
@@ -65,13 +78,16 @@ class AuthController {
         $data = json_decode(file_get_contents("php://input"));
 
         // Validar que los datos no estén vacíos
-        if(!empty($data->usuario) && !empty($data->password)) {
-            
-            $this->user->usuario = $data->usuario;
+        $usuario  = $data->usuario  ?? '';
+        $password = $data->password ?? '';
+
+        if (is_string($usuario) && is_string($password) && $usuario !== '' && $password !== '') {
+
+            $this->user->usuario = $usuario;
             $usuario_db = $this->user->buscarPorUsuario();
 
             // Verificar si el usuario existe y la contraseña es correcta
-            if($usuario_db && password_verify($data->password, $usuario_db['password'])) {
+            if($usuario_db && password_verify($password, $usuario_db['password'])) {
                 http_response_code(200); // OK
                 echo json_encode([
                     "estado" => "exitoso",
